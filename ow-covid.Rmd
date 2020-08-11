@@ -1,0 +1,115 @@
+---
+title: "Our World in Data Covid"
+output: html_notebook
+---
+
+## Data
+
+```{r}
+library(plm)
+library(tidyverse)
+```
+
+```{r}
+ow_covid <- read_csv("owid-covid-data.csv",
+                     col_types = cols(
+                       new_tests = col_number(),
+                       total_tests = col_number(),
+                       total_tests_per_thousand = col_number(),
+                       new_tests_per_thousand = col_number(),
+                       new_tests_smoothed = col_number(),
+                       new_tests_smoothed_per_thousand = col_number(),
+                       tests_units = col_character()
+                       )
+                     )
+```
+
+```{r}
+options(scipen = 999)
+ow_covid %>% 
+  group_by(iso_code) %>% 
+  mutate(l_string = dplyr::lag(stringency_index, 14)) %>% 
+  lm(new_cases_per_million ~ stringency_index + gdp_per_capita +
+       extreme_poverty + diabetes_prevalence + handwashing_facilities +
+       + cardiovasc_death_rate + female_smokers + male_smokers +
+       population_density + l_string, .) %>% 
+  summary()
+```
+
+
+New cases per million
+
+```{r}
+ow_covid %>% 
+  group_by(iso_code) %>% 
+  mutate(l_string = dplyr::lag(stringency_index, 14)) %>%
+  drop_na() %>% 
+  ungroup() %>% 
+  plm(new_cases_per_million ~ stringency_index + gdp_per_capita +
+       extreme_poverty + diabetes_prevalence + handwashing_facilities + 
+        aged_65_older + aged_70_older + cardiovasc_death_rate + 
+        female_smokers + male_smokers + life_expectancy + 
+       population_density + iso_code, data = .,
+      index = c("iso_code", "date"), model = "within", effect = "twoways") %>% 
+  summary()
+```
+
+Total Cases
+
+```{r}
+ow_covid %>% 
+  group_by(iso_code) %>% 
+  mutate(l_string = dplyr::lag(stringency_index)) %>%
+  drop_na() %>% 
+  ungroup() %>% 
+  plm(total_cases_per_million ~ stringency_index + gdp_per_capita +
+       extreme_poverty + diabetes_prevalence + handwashing_facilities + 
+        aged_65_older + aged_70_older + cardiovasc_death_rate + 
+        female_smokers + male_smokers + life_expectancy + 
+       population_density, data = .,
+      index = c("iso_code", "date"), model = "within", effect = "twoways") %>% 
+  summary()
+```
+
+
+```{r}
+ow_covid %>% 
+  group_by(iso_code) %>% 
+  mutate(l_string = dplyr::lag(stringency_index, 14)) %>%
+  drop_na() %>% 
+  ungroup() %>% 
+  plm(new_cases_per_million ~ stringency_index + gdp_per_capita +
+       extreme_poverty + diabetes_prevalence + handwashing_facilities + 
+        aged_65_older + aged_70_older + cardiovasc_death_rate + 
+        female_smokers + male_smokers + life_expectancy + 
+       population_density, data = .,
+      index = c("iso_code", "date"), model = "within", effect = "twoways") %>% 
+  summary()
+```
+
+
+
+```{r}
+ow_covid %>% 
+  group_by(date, iso_code) %>% 
+  filter(continent %in% c("Europe", "North America")) %>% 
+  ggplot(aes(x = lag(stringency_index, 14), y = total_cases_per_million, color = continent)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) 
+```
+
+```{r}
+ow_covid %>% 
+  group_by(iso_code) %>% 
+  mutate(l_string = dplyr::lag(stringency_index)) %>%
+  drop_na() %>% 
+  ungroup() %>% 
+  plm(total_cases_per_million ~ stringency_index + gdp_per_capita +
+       extreme_poverty + diabetes_prevalence + handwashing_facilities + 
+        aged_65_older + aged_70_older + cardiovasc_death_rate + 
+        female_smokers + male_smokers + life_expectancy + 
+       population_density + factor(date), data = .,
+      index = c("iso_code"), model = "within") %>% 
+  summary()
+```
+

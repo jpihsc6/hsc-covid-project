@@ -1,0 +1,547 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r message=FALSE}
+library(covid19.analytics)
+library(tidyverse)
+library(lubridate)
+library(magrittr)
+```
+
+```{r}
+# read daily data into an object named covid_daily
+
+covid_daily <- covid19.US.data() 
+
+
+# read the cumulative state level data
+
+covid_cum <- covid19.JHU.data() %>% 
+  janitor::clean_names() %>% 
+  as_tibble()
+
+# create a data vector for use in reports
+
+last_update <-
+  covid_cum$Last_Update[1] %>% 
+  as_date() %>% 
+    format("%A, %B %d")
+```
+
+```{r}
+# This function will make it easier to "not choose" records
+
+`%notin%` <- Negate(`%in%`)
+```
+
+# Data first glance
+
+```{r}
+covid_daily %>% 
+  distinct(Country_Region)
+  # count(Country_Region)
+
+unique(covid_daily$Country_Region)
+
+covid_daily %>% 
+  filter(Province_State %in% c(state.name, "District of Columbia")) %>% 
+  select(-Country_Region)
+         
+c(state.name, "District of Columbia")
+```
+
+Let's choose observations from the 50 states and Washington DC. Base R includes a vector called state.name in datasets.  However, state does not include DC.  Let's also exclude Country_Region.
+
+```{r}
+covid_daily_us <- 
+covid_daily %>% 
+  filter(Province_State %in% c(state.name, "District of Columbia")) %>% 
+  select(-Country_Region)
+```
+
+Confirm 50 states and DC
+
+```{r}
+covid_daily_us %>%
+  distinct(Province_State)
+
+```
+
+
+
+```{r}
+covid_cum %>% 
+  filter(Country_Region == "US") %>% 
+  distinct(Province_State)
+
+covid_cum
+```
+
+Note that the covid_daily data don't have county name column, but the covid_sum does.  We will need to join them to get the county names.  What are the keys?
+
+## Are the data tidy?
+
+No, so now what
+
+```{r}
+covid_daily_us_long <- 
+covid_daily_us %>% 
+  pivot_longer(cols = -c(Province_State, Lat, Long_),
+               names_to = "date",
+               values_to = "value")
+```
+Don't have county names.
+Get the county name from covid_sum.  We need only Admin2, Long_, and Lat from covid_cum 
+
+```{r}
+covid_daily_us_long %<>% 
+  # pivot_longer(cols = -c(Province_State, Lat, Long_),
+  #              names_to = "date",
+  #              values_to = "value") %>% 
+  right_join(covid_cum %>% 
+               select(Admin2, Lat, Long_),
+            by = c("Lat", "Long_")) %>% 
+  # remove Lat Long_ 
+  select(-Lat, - Long_) %>% 
+  rename(county = Admin2, state = Province_State) %>% 
+  #relocate the county column
+  relocate(county, .after = state)
+```
+
+Let's look at Prince Edward county data
+
+```{r}
+covid_daily_us_long %>% 
+  filter(state == "Virginia", county == "Buckingham")
+```
+
+Note the number of observations is double the number of days. Why do you think that is?
+
+There are two observations for each month one for confirmed on for deaths.  So we need to create a "long" character vector...
+
+How can we arrange the data to simplify the creation of this 
+
+```{r}
+covid_daily_us_long %>% 
+  arrange(state, county, date)
+```
+
+Should have even number of values...
+
+```{r}
+covid_daily_us_long %>% 
+  arrange(state, county, date) %>% 
+  mutate(type = rep(c("confirmed", "deaths"),
+                    length.out = length(county)))
+```
+
+Now we need to pivot_wide---
+
+```{r}
+# covid_daily_us_wide <- 
+covid_daily_us_long %>% 
+  arrange(state, county, date) %>% 
+  mutate(type = rep(c("confirmed", "deaths"),
+                    length.out = length(county))) %>% 
+  pivot_wider(names_from = type,
+              values_from = value)
+```
+
+Find counties with issues
+
+```{r}
+covid_daily_us_long %>% 
+  drop_na() %>% 
+  arrange(state, county, date) %>% 
+  mutate(type = rep(c("confirmed", "deaths"),
+                    length.out = length(county))) %>% 
+  pivot_wider(names_from = type,
+              values_from = value,
+              values_fn = length) %>% 
+  filter(confirmed > 1) %>% 
+  distinct(county) %>% 
+  pull() %>% 
+  as.character()-> doubles
+```
+
+remove problematic counties
+
+```{r}
+covid_daily_us_long %>% 
+  filter(county %notin% doubles) %>% 
+  drop_na() %>% 
+  arrange(state, county, date) %>% 
+  mutate(type = rep(c("confirmed", "deaths"),
+                    length.out = length(county))) %>% 
+  pivot_wider(names_from = type,
+              values_from = value,
+              values_fn = length) %>% 
+  filter(deaths > 1 | confirmed > 1)
+```
+
+0 rows means problem counties have been removed.
+
+```{r}
+covid_daily_us_final <- 
+covid_daily_us_long %>% 
+  filter(county %notin% doubles) %>% 
+  drop_na() %>% 
+  arrange(state, county, date) %>% 
+  mutate(type = rep(c("confirmed", "deaths"),
+                    length.out = length(county))) %>% 
+  pivot_wider(names_from = type,
+              values_from = value)
+```
+
+
+```{r}
+covid_daily_us_final %>% 
+  mutate(stay_home = ifelse(date >= "2020-03-16" & date <= "2020-06-15", 1, 0)) %>% 
+  filter(date >= "2020-06-15")
+```
+
+
+
+```{r}
+covid_daily_us_final %>% 
+  filter(state %in% c("New York", "California", "Florida", "South Carolina")) %>% 
+  filter(date >= "2020-03-01", date <= "2020-06-30",
+        confirmed >= 1) %>%
+  group_by(state, date) %>% 
+  mutate(confirmed = sum(confirmed),
+         deaths = sum(deaths)) %>% 
+  ggplot(aes(x = as.Date(date), y = deaths, color = state)) + 
+  geom_line() #+
+  # geom_line(aes(y = confirmed, x = as.Date(date), color = state)) +
+  # scale_y_log10() +
+```
+
+```{r}
+covid_daily_us_final %>% 
+  group_by(county) %>% 
+  mutate(chg_deaths = deaths - lag(deaths)) %>% 
+  ungroup() %>% 
+  group_by(date) %>% 
+  mutate(tot_deaths = sum(deaths),
+         new_deaths = sum(chg_deaths)) %>% 
+  ggplot(aes(x = as.Date(date), y = new_deaths)) + 
+  geom_line()
+```
+
+
+Created time series data by county.
+```{r}
+# jhu %>% 
+#   select(Admin2, Lat, Long_) %>% 
+#   left_join(covid, by = c("Lat", "Long_")) %>% 
+#   # filter for states and DC
+#   filter(Province_State %in% c(state.name, "District of Columbia")) %>% 
+#   select(-c(Lat, Long_, Country_Region)) %>% 
+#   pivot_longer(cols = -c(Admin2, Province_State),
+#                names_to = "date",
+#                values_to = "value") %>% 
+#   # group_by(Admin2, date) %>% 
+#   # pivot_wider(names_from = Admin2,
+#   #             values_from = value) %>% 
+#   janitor::clean_names() %>% 
+#   arrange(province_state, admin2, date) %>% 
+#   mutate(type = rep(c("confirmed", "deaths"), length.out = length(admin2))) %>% 
+#   filter(admin2 %notin% doubles) %>% 
+#   # filter(value > 10)
+#   # distinct() %>% 
+#   pivot_wider(names_from = type,
+#               values_from = value) 
+  
+```
+
+Attempt to Remove double counted counties
+
+```{r}
+# jhu %>% 
+#   filter(Admin2 == "Dukes and Nantucket")
+```
+
+
+
+
+
+```{r}
+# df %>% 
+#   filter(confirmed > 1) %>% 
+#   distinct(admin2) %>% 
+#   pull(admin2) %>% 
+#   as.character() -> doubles
+
+# doubles combine counties 
+
+# remove those admin2 from data.
+```
+
+find duplicate rows
+
+```{r}
+# jhu %>% 
+#   select(Admin2, Lat, Long_) %>% 
+#   left_join(covid, by = c("Lat", "Long_")) %>% 
+#   # filter for states and DC
+#   filter(Province_State %in% c(state.name, "District of Columbia")) %>% 
+#   select(-c(Lat, Long_, Country_Region)) %>% 
+#   filter(Province_State == "Utah") %>% 
+#   pivot_longer(-c(Province_State, Admin2),
+#               names_to = "date",
+#               values_to = "value")
+```
+
+
+
+```{r}
+# jhu %>% 
+#   select(Admin2, Lat, Long_) %>% 
+#   left_join(covid, by = c("Lat", "Long_")) %>% 
+#   # filter for states and DC
+#   filter(Province_State %in% c(state.name, "District of Columbia")) %>% 
+#   select(-c(Lat, Long_, Country_Region)) %>% 
+#   pivot_longer(cols = -c(Admin2, Province_State),
+#                names_to = "date",
+#                values_to = "value") %>% 
+#   # group_by(Admin2, date) %>% 
+#   # pivot_wider(names_from = Admin2,
+#   #             values_from = value) %>% 
+#   janitor::clean_names()
+```
+
+```{r}
+# jhu %>% 
+#   filter(Admin2 == "Nantucket")
+
+```
+
+```{r}
+# jhu %>% 
+#   filter(Country_Region == "US") %>% 
+#   filter(Province_State == "Virginia") %>% 
+#   select(Admin2, Confirmed) %>% 
+#   slice_max(Confirmed)
+# 
+# 
+# jhu %>% 
+#   filter(Country_Region == "US") %>% 
+#   filter(Province_State == "Virginia") %>% 
+#   select(Admin2, Deaths) %>% 
+#   filter(Deaths > 0) %>% 
+#   slice_min(Deaths) 
+```
+
+
+County population
+
+```{r}
+# county_pop <- 
+#   read_csv("county_pop.csv", skip = 5,
+#                        col_names = c("county", "census", "estimates_base", "2010",
+#                                      "2011", "2012", "2013", "2014", "2015", "2016",
+#                                      "2017", "2018", "2019")) %>% 
+#   select(county, pop = `2019`) %>% 
+#   mutate(county = str_sub(county, 2)) %>%
+#   mutate(county = str_replace(county, " County", "")) 
+#   
+# county_pop$county[which(str_detect(county_pop$county, "(C|c)ity"))]
+  # pluck("county", 90)
+  # separate(county, into = c("county", "state"), sep = " County, ") #%>%
+  # filter(state == "Virgnia")
+  # select(county, state, pop)
+county_pop_est <-
+  read_csv("co-est2019-alldata.csv") %>% 
+    janitor::clean_names() %>% 
+    mutate(FIPS = as.numeric(state) * 1000 + as.numeric(county)) %>% 
+    # mutate(FIPS = str_c(state, county)) %>% 
+    select(FIPS, stname, ctyname, pop = popestimate2019)
+```
+
+County land area
+
+```{r}
+land_area <- 
+readxl::read_xls("LND01.xls") %>% 
+  janitor::clean_names() %>%
+  rowwise() %>% 
+  mutate(land_area = max(c_across(ends_with("d")))) %>% 
+  transmute(areaname, FIPS = as.numeric(stcou), 
+            land_area)
+```
+
+```{r}
+land_area %>% 
+  summary()
+
+covid_cum %>% 
+  filter(is.na(FIPS))
+```
+
+
+```{r}
+county_pop_est %>% 
+  left_join(land_area) %>% 
+  transmute(FIPS, areaname, pop, land_area, density = pop / land_area) %>% 
+  summary()
+```
+
+
+```{r}
+covid_cum_final <- 
+covid_cum %>% 
+  left_join(county_pop_est) %>% 
+  left_join(land_area) %>% 
+  transmute(FIPS, county = Admin2, state = Province_State,
+            Confirmed, Deaths, Case.Fatality_Ratio,
+            pop, land_area, density = pop / land_area) %>% 
+  janitor::clean_names() %>% 
+  drop_na() 
+
+covid_cum_final %>% 
+  filter(density < 5000) %>% 
+  ggplot(aes(x = density, y = case_fatality_ratio)) + 
+  geom_jitter() + 
+  geom_jitter(data = covid_cum_final %>% 
+                filter(state == "New York",
+                       density < 5000),
+                       color = "red")
+
+```
+
+```{r}
+covid_cum_final %>% 
+  filter(case_fatality_ratio > 10) %>% 
+  arrange(state) %>% 
+  count(state)
+```
+
+
+```{r}
+covid_cum_final %>% 
+  filter(state == "Virginia",
+         county %in% c("Amelia", "Buckingham", "Charlotte", 
+                       "Cumberland", "Lunenberg", "Nottoway", "Prince Edward")) %>% 
+  summarize(rate = sum(confirmed)/ sum(pop) * 100)
+```
+
+```{r}
+covid_cum_final %>% 
+  filter(state == "Virginia") %>% 
+  pivot_longer(c("confirmed", "deaths"), names_to = "type", values_to = "count") %>% 
+  ggplot(aes(x = density, y = count, color = type)) +
+  geom_jitter() + 
+  geom_smooth()
+```
+
+```{r}
+covid_cum_final %>% 
+  filter(state == "Virginia") %>% 
+  arrange(desc(deaths))
+
+covid_cum_final %>% 
+  filter(state == "Virginia") %>% 
+  arrange(desc(confirmed))
+
+covid_cum_final %>% 
+  filter(state == "Virginia") %>% 
+  arrange(desc(case_fatality_ratio))
+```
+
+
+```{r}
+options(scipen = 999)
+covid_cum_final %>% 
+  filter(state == "Virginia") %>% 
+  mutate(fairfax = ifelse(
+    county %in% c("Fairfax", "Henrico", "Prince William", "Arlington", "Loudon"), 
+    1, 0),
+         ) %>% 
+  lm(deaths ~ confirmed * fairfax + density, .) %>% 
+  summary()
+```
+
+```{r}
+covid_cum_final %>% 
+  filter(state == "Virginia",
+         confirmed < 2500) %>% 
+  ggplot(aes(x = confirmed, y = deaths)) +
+  geom_jitter() + 
+  geom_smooth(method = "lm")
+```
+
+```{r}
+covid_cum_final %>% 
+  # filter(state %in% c("New York", "Florida")) %>% 
+  # mutate(new_york = ifelse(state == "New York", 1, 0)) %>% 
+  lm(deaths ~ confirmed + density + I(density^2), .) %>% 
+  summary()
+```
+
+```{r}
+covid_cum_final %>% 
+  filter(state %in% 
+           c("New York", "Illinois", "New Jersey", "Massachusetts",
+             "Pennsylvania", "Connecticut", "Ohio")) %>% 
+  # filter(deaths < 15000) %>% 
+  ggplot(aes(x = confirmed, y = deaths, color = state)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = F)  
+  # coord_cartesian(xlim = c(0, 10000), ylim = c(0, 1000)) +
+  # scale_y_log10()
+```
+
+```{r}
+covid_cum_nest <- 
+covid_cum_final %>% 
+  group_by(state) %>% 
+  nest()
+```
+
+
+```{r}
+covid_cum_nest %>% 
+  mutate(
+    fit = map(~lm(deaths ~ confirmed + density, data = .)))
+```
+
+```{r}
+covid_cum_nest %>% 
+  # nest(-state) %>% 
+  mutate(
+    fit = map(data, ~lm(deaths ~ confirmed,  data = .x)),
+    tidied = map(fit, broom::tidy),
+    glanced = map(fit, broom::glance),
+    augmented = map(fit, broom::augment)
+    ) %>% 
+  unnest(tidied) %>% 
+  select(state, term, estimate, std.error, statistic) %>% 
+  pivot_wider(names_from = term,
+              values_from = c(estimate, std.error, statistic)) %>% 
+  arrange(desc(estimate_confirmed))
+```
+
+```{r}
+covid_cum_final %>% 
+  nest(-state)
+```
+
+```{r}
+covid_cum %>% 
+  filter(Province_State == "Rhode Island")
+```
+
+
+```{r}
+read_csv("covid-law-dates.csv") %>% 
+  janitor::clean_names() %>% 
+  select(state = province_state_name,
+         contains("policy")
+         ) %>% 
+  filter(policy_name == "StayAtHome", 
+         policy_mandatory_code == 0)
+```
+

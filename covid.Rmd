@@ -1,0 +1,76 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# install.packages("covid19.analytics")
+library(covid19.analytics)
+library(tidyverse)
+covidts <- 
+  covid19.data(case = "ts-confirmed")
+covidts %<>% 
+  pivot_longer(cols = starts_with("2020"), names_to = "date", values_to = "confirmed") %>% 
+  janitor::clean_names() %>% 
+  hablar::retype()
+```
+
+```{r}
+covidts %>% 
+  filter(country_region == "US") %>% 
+  mutate(new = confirmed - lag(confirmed)) %>% 
+  ggplot(aes(x = date, y = new)) +
+  geom_bar(stat = "identity") 
+  
+```
+
+```{r}
+
+
+covid19.US.data() %>% 
+  pivot_longer(cols = starts_with("2020"), names_to = "date", values_to = "deaths") %>% 
+  janitor::clean_names() %>% 
+  hablar::retype()
+```
+
+```{r}
+covidts %>% 
+  filter(country_region == "US") %>% 
+  mutate(mov_avg = zoo::rollmean(confirmed, 7, na.pad =  TRUE, align = "right"))
+```
+
+```{r}
+covid <- read_csv("https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv") %>% 
+  filter(iso_code == "USA")
+
+covid %>% 
+  ggplot(aes(x = date, y = new_deaths)) + 
+  geom_line() +
+  geom_line(aes(x = date, y = new_cases)) + 
+  scale_y_continuous(sec.axis = sec_axis(~ 10*.))
+```
+
+```{r}
+covid %>% 
+  filter(date < "2020-05-01") %>% 
+  lm(new_deaths ~ lag(new_cases, 10), .) %>% 
+  summary()
+
+covid %>% 
+  filter(date < "2020-05-01") %>%
+  lm(new_deaths ~ lag(new_cases, 10), .) %>%
+  broom::tidy() %>% 
+  pull(estimate) ->
+  beta
+```
+
+```{r}
+covid %>% 
+  filter(date > as.Date("2020-04-30")) %>% 
+  mutate(deaths = new_cases * beta[2]) %>% 
+  select(date, new_deaths, deaths)
+```
+
+
+
+

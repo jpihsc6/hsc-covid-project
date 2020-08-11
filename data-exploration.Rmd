@@ -1,0 +1,182 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(tidyverse)
+library(ggrepel)
+```
+
+
+```{r}
+county_dex <- read_csv("../dex_data/county_dex.csv")
+```
+
+
+```{r}
+county_dex %>% 
+  # select prince edwary county
+  filter(fips == 51145) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(dex, k = 7, fill = NA)) %>% 
+  ggplot(aes(x = date, y = mov_avg_7)) + 
+  geom_line() + 
+  geom_vline(xintercept = as.Date("2020-03-30"), color = "red")
+```
+
+```{r}
+county_dex %>% 
+  mutate(fips = as.numeric(county)) %>% 
+  filter(between(fips, 51000, 51999)) %>% 
+  group_by(date) %>% 
+  mutate(dex_sum = sum(dex * num_devices) / num_devices)
+
+```
+
+# Google mobility data
+
+```{r}
+mobility <- read_csv("Global_Mobility_Report.csv", col_types = 
+                     cols(country_region_code = col_character(),
+                          country_region = col_character(),
+                          sub_region_1 = col_character(),
+                          sub_region_2 = col_character(),
+                          metro_area = col_character(),
+                          iso_3166_2_code = col_character(),
+                          census_fips_code = col_integer(),
+                          date = col_date(format = ""),
+                          retail_and_recreation_percent_change_from_baseline = col_double(),
+                          grocery_and_pharmacy_percent_change_from_baseline = col_double(),
+                          parks_percent_change_from_baseline = col_double(),
+                          transit_stations_percent_change_from_baseline = col_double(),
+                          workplaces_percent_change_from_baseline = col_double(),
+                          residential_percent_change_from_baseline = col_double()
+                     )
+                     )
+```
+
+## US
+
+```{r message=FALSE, warning=FALSE}
+mobility_long <- 
+mobility %>% 
+  filter(country_region_code == "US") %>% 
+  filter(is.na(census_fips_code), 
+         is.na(sub_region_1)) %>% 
+  select(date:residential_percent_change_from_baseline) %>% 
+  pivot_longer(-date, names_to = "measure", values_to = "value",
+               names_pattern = "(.*)_percent_change_from_baseline") %>% 
+  group_by(measure) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(value, 7, fill = "NA")) 
+```
+
+```{r}
+mobility_long %>% 
+  group_by(date) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = measure)) +
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = measure), method = "smart.grid") +
+  labs(x = "Date", 
+       y = "7 Day Moving Average",
+       caption = "Source: COVID-19 Community Mobility Reports",
+       title = "US Mobility",
+       subtitle = "Measured as percent change from baseline")
+
+ggsave("us-mobility.png")
+```
+
+### State Data
+
+```{r}
+state_mobility_long <- 
+mobility %>% 
+  filter(country_region_code == "US") %>% 
+  select(state = sub_region_1,
+         county = sub_region_2,
+         census_fips_code:residential_percent_change_from_baseline) %>% 
+  pivot_longer(retail_and_recreation_percent_change_from_baseline:
+                 residential_percent_change_from_baseline,
+               names_to = "measure", 
+               values_to = "value",
+               names_pattern = "(.*)_percent_change_from_baseline") %>% 
+  group_by(measure) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(value, 7, fill = "NA")) 
+```
+
+```{r}
+state_mobility_long %>% 
+  filter(state == "Virginia", is.na(county)) %>% 
+  group_by(date) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = measure)) +
+  geom_vline(xintercept = as.Date("2020-03-30"), color = "red") +
+  geom_vline(xintercept = as.Date("2020-06-15"), color = "dark green") +
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = measure), method = "smart.grid") +
+  labs(x = "Date", 
+       y = "7 Day Moving Average",
+       caption = "Source: COVID-19 Community Mobility Reports",
+       title = "VA Mobility",
+       subtitle = "Measured as percent change from baseline")
+```
+
+#### County
+
+```{r}
+state_mobility_long %>% 
+  filter(county == "Lynchburg") %>% 
+  group_by(date) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = measure)) +
+  geom_vline(xintercept = as.Date("2020-03-30"), color = "red") +
+  geom_vline(xintercept = as.Date("2020-06-15"), color = "dark green") +
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = measure), method = "smart.grid") +
+  labs(x = "Date", 
+       y = "7 Day Moving Average",
+       caption = "Source: COVID-19 Community Mobility Reports",
+       title = "Fairfax Mobility",
+       subtitle = "Measured as percent change from baseline")
+```
+
+
+
+
+# Apple mobility data
+
+
+```{r}
+apple <-  read_csv("applemobilitytrends-2020-08-05.csv")
+```
+
+data are not tidy
+
+```{r}
+apple %>% 
+  pivot_longer(contains("2020"), names_to = "date", values_to = "value") %>% 
+  filter(region == "United States") %>% 
+  group_by(transportation_type) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(value, 7, fill = NA)) %>% 
+  ggplot(aes(x = as.Date(date), y = mov_avg_7, color = transportation_type)) + 
+  geom_line(show.legend = FALSE) + 
+  directlabels::geom_dl(aes(label = transportation_type), method = "smart.grid") 
+```
+
+Google Trends
+
+```{r}
+library(gtrendsR)
+```
+
+```{r}
+virus <- gtrends("corona virus", "US")
+```
+
+```{r}
+virus$related_queries
+```
+
+
+

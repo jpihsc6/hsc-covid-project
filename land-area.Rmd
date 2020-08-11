@@ -1,0 +1,18 @@
+---
+title: "County Land Area"
+output: html_notebook
+---
+
+County land area
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+readxl::read_xls("LND01.xls") %>% 
+  janitor::clean_names() %>% 
+  select(areaname, FIPS = stcou, land_area = lnd010200d)
+```
+
