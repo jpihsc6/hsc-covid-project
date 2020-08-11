@@ -1,0 +1,512 @@
+---
+title: "Mobility EDA"
+author: "Carilli"
+date: "`r lubridate::today()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: zenburn
+    code_folding: hide
+    df_print: paged
+    fig_caption: true
+params:
+  fips: 51041
+  county: Chesterfield
+  state: Virginia
+  city: Richmond
+  apple_county: Chesterfield County
+  state_abb: VA
+  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, options(scipen = 999, digits = 3),
+                      message = FALSE, warning = FALSE)
+library(tidyverse)
+library(ggrepel)
+library(directlabels)
+library(gtrendsR)
+library(here)
+```
+
+# Device Exposure Data {.tabset .tabset-fade .tabset-pills}
+
+## County Data
+
+```{r dex-data}
+county_dex <- 
+  here("data", "county_dex.csv") %>% 
+  read_csv() %>% 
+  # coerce county to numeric fips code
+  mutate(fips = as.numeric(county), .before = county,
+  # coerce date to date from character vector
+         date = as.Date(date)) %>% 
+  select(-county)
+
+# county_dex
+```
+
+## State data
+
+```{r state-dex-data}
+state_dex <- 
+here("data", "state_dex.csv") %>% 
+  read_csv() 
+
+state_dex_long <- 
+state_dex %>% 
+  select(-c(contains("_a"), contains("num"))) %>% 
+  # glimpse()
+  pivot_longer(dex_income_1:dex_race_white,
+               names_to = "category",
+               values_to = "cat_dex") 
+  
+```
+
+
+## Dex data plots
+
+### `r params$state` 
+
+```{r state-dex-plot}
+state_dex %>%
+  filter(state == params$state_abb) %>%
+  mutate(mov_avg_7 = zoo::rollmean(dex, 7, NA)) %>%
+  ggplot(aes(x = date, y = mov_avg_7)) +
+  geom_line()
+```
+
+
+### `r params$state` by race
+
+```{r dex-state-plot-race}
+state_dex_long %>% 
+  filter(state == params$state_abb) %>%
+  filter(str_detect(category, "race")) %>% 
+  group_by(category) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(cat_dex, 7, NA)) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = category)) + 
+  geom_line() 
+
+```
+
+### `r params$state` by income
+
+```{r dex-state-plot-income}
+state_dex_long %>% 
+  filter(state == params$state_abb) %>%
+  filter(str_detect(category, "income")) %>% 
+  group_by(category) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(cat_dex, 7, NA)) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = category)) + 
+  geom_line() 
+```
+
+### `r params$state` by education
+
+```{r dex-state-plot-education}
+state_dex_long %>% 
+  filter(state == params$state_abb) %>%
+  filter(str_detect(category, "education")) %>% 
+  group_by(category) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(cat_dex, 7, NA)) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = category)) + 
+  geom_line() 
+
+```
+
+
+### `r params$county` County
+
+```{r dex-county-plot, echo=FALSE}
+county_dex %>% 
+  filter(fips == params$fips) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(dex, 7, NA)) %>% 
+  ggplot(aes(x = date, y = mov_avg_7)) +
+  geom_line(color = "blue") + 
+  # geom_vline(xintercept = as.Date("2020-03-30"), color = "red", size = 1.25) +
+  labs(x = NULL,
+       y = "7 Day Moving Average",
+       title = "Device Exposure Index",
+       subtitle = glue::glue({params$county}, " County, ", {params$state}))
+```
+
+# Google mobility data {.tabset .tabset-fade .tabset-pills}
+
+## Us by county data wide
+
+```{r google-data-us}
+mobility_us_by_county <-
+  here("data", "us_mobility_report.csv") %>%
+  read_csv(
+    col_types =
+      cols(
+        country_region_code = col_character(),
+        country_region = col_character(),
+        sub_region_1 = col_character(),
+        sub_region_2 = col_character(),
+        metro_area = col_character(),
+        iso_3166_2_code = col_character(),
+        census_fips_code = col_integer(),
+        date = col_date(format = ""),
+        retail_and_recreation_percent_change_from_baseline = col_double(),
+        grocery_and_pharmacy_percent_change_from_baseline = col_double(),
+        parks_percent_change_from_baseline = col_double(),
+        transit_stations_percent_change_from_baseline = col_double(),
+        workplaces_percent_change_from_baseline = col_double(),
+        residential_percent_change_from_baseline = col_double()
+      )
+  ) %>% 
+  # filter(country_region_code == "US") %>%
+  select(date,
+         state = sub_region_1, county = sub_region_2, fips = census_fips_code,
+         retail_and_recreation_percent_change_from_baseline:
+           residential_percent_change_from_baseline) 
+  
+
+# mobility_us_by_county
+```
+
+## US by county tidied
+
+```{r google-data-long-county, warning=FALSE}
+mobility_us_by_county_long <- 
+mobility_us_by_county %>%
+  filter(!is.na(fips)) %>%
+  pivot_longer(
+    -c(date,
+       state,
+       county,
+       fips),
+    names_to = "measure",
+    values_to = "percent_change_from_baseline",
+    names_pattern = "(.*)_percent_change_from_baseline"
+  ) 
+# mobility_us_by_county_long
+```
+Some counties proved problematic due to missing observations.  We'll have to creating moving averages as we need paricular counties.
+
+## US by State tidied
+
+```{r google-data-long-state, message=FALSE, warning=FALSE}
+mobility_us_by_state_long <- 
+mobility_us_by_county %>% 
+  filter(!is.na(state), is.na(fips)) %>% 
+  select(-c(county, fips)) %>% 
+  pivot_longer(-c(date, state), names_to = "measure", 
+               values_to = "percent_change_from_baseline",
+               names_pattern = "(.*)_percent_change_from_baseline") %>% 
+  group_by(measure, state) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(percent_change_from_baseline, 7, fill = "NA"))
+
+# mobility_us_by_state_long
+
+
+```
+
+## US tidied
+
+```{r google-data-long-us, warning=FALSE}
+mobility_us_long <- 
+mobility_us_by_county %>% 
+  filter(is.na(state)) %>% 
+  select(-c(state, county, fips)) %>% 
+  pivot_longer(-date, names_to = "measure", 
+               values_to = "percent_change_from_baseline",
+               names_pattern = "(.*)_percent_change_from_baseline") %>% 
+  group_by(measure) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(percent_change_from_baseline, 7, fill = "NA")) 
+
+# mobility_us_long
+```
+
+## Google Mobility Plots
+
+### US plot
+
+```{r us-mobility-plot}
+mobility_us_long %>% 
+  group_by(date) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = measure)) + 
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = measure), method = "smart.grid") +
+  labs(x = NULL,
+       y = "7 Day Moving Average",
+       caption = "Source: COVID-19 Community Mobility Reports",
+       title = "US Mobility",
+       subtitle = "Measured as percent change from baseline")
+  
+```
+
+### State plot `r params$state`
+
+```{r state-mobility-plot}
+mobility_us_by_state_long %>% 
+  filter(state == params$state) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = measure)) + 
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = measure), method = "smart.grid") +
+  labs(x = NULL,  
+       y = "7 Day Moving Average",
+       caption = "Source: COVID-19 Community Mobility Reports",
+       title = glue::glue({params$state}, "Mobility", .sep = " "),
+       subtitle = "Measured as percent change from baseline")
+         
+```
+
+### `r params$county` plot
+
+```{r google-county-plot}
+mobility_us_by_county_long %>% 
+  filter(fips == params$fips) %>% 
+  group_by(measure) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(percent_change_from_baseline, 7, fill = "NA")) %>% 
+  ggplot(aes(x = date, y = mov_avg_7, color = measure)) + 
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = measure), method = "smart.grid") +
+  labs(x = NULL,  
+       y = "7 Day Moving Average",
+       caption = "Source: COVID-19 Community Mobility Reports",
+       title = glue::glue({params$county}, {params$state}, "Mobility", .sep = " "),
+       subtitle = "Measured as percent change from baseline")
+
+  
+```
+
+# Apple mobility data {.tabset .tabset-fade .tabset-pills}
+
+We can apple mobility data by the US, by state, by county, and by city.
+
+## Data
+
+### US
+
+Driving, walking, and transit for US total
+
+```{r apple-us}
+apple_us <- 
+here("data", "applemobilitytrends-2020-08-05.csv") %>%
+  read_csv(
+    col_types = cols(
+      .default = col_double(),
+      geo_type = col_character(),
+      region = col_character(),
+      transportation_type = col_character(),
+      alternative_name = col_character(),
+      `sub-region` = col_character(),
+      country = col_character(),
+      `2020-05-11` = col_double(),
+      `2020-05-12` = col_double()
+    )
+  ) %>%
+  filter(region == "United States") %>% 
+  select(-c(geo_type, region, alternative_name, `sub-region`, country)) %>% 
+  pivot_longer(-transportation_type,
+               names_to = "date",
+               values_to = "index")
+# apple_us  
+
+```
+
+### State level
+
+The only data available by state are driving data.
+
+```{r apple-state}
+apple_state <- 
+here("data", "applemobilitytrends-2020-08-05.csv") %>%
+  read_csv(
+    col_types = cols(
+      .default = col_double(),
+      geo_type = col_character(),
+      region = col_character(),
+      transportation_type = col_character(),
+      alternative_name = col_character(),
+      `sub-region` = col_character(),
+      country = col_character(),
+      `2020-05-11` = col_double(),
+      `2020-05-12` = col_double()
+    )
+  ) %>%
+  select(-c(alternative_name)) %>% 
+  filter(region %in% state.name) %>% 
+  pivot_longer(starts_with("2020"),
+               names_to = "date",
+               values_to = "index") %>% 
+  select(date, state = region, transportation_type, index)
+
+# apple_state
+```
+
+### County level
+
+Driving is the only type available at the county level.
+
+```{r apple-county}
+apple_county <- 
+here("data", "applemobilitytrends-2020-08-05.csv") %>%
+  read_csv(
+    col_types = cols(
+      .default = col_double(),
+      geo_type = col_character(),
+      region = col_character(),
+      transportation_type = col_character(),
+      alternative_name = col_character(),
+      `sub-region` = col_character(),
+      country = col_character(),
+      `2020-05-11` = col_double(),
+      `2020-05-12` = col_double()
+    )
+  ) %>%
+  filter(geo_type == "county", country == "United States") %>% 
+  select(-c(alternative_name, geo_type, country), county = region, state = `sub-region`,
+         starts_with("2020")) %>% 
+  pivot_longer(starts_with("2020"),
+               names_to = "date",
+               values_to = "index")
+# apple_county
+```
+
+### City Level
+
+```{r apple-city}
+apple_city <- 
+here("data", "applemobilitytrends-2020-08-05.csv") %>%
+  read_csv(
+    col_types = cols(
+      .default = col_double(),
+      geo_type = col_character(),
+      region = col_character(),
+      transportation_type = col_character(),
+      alternative_name = col_character(),
+      `sub-region` = col_character(),
+      country = col_character(),
+      `2020-05-11` = col_double(),
+      `2020-05-12` = col_double()
+    )
+  ) %>%
+  filter(geo_type == "city", country == "United States") %>% 
+  select(-c(alternative_name, geo_type, country), city = region, state = `sub-region`,
+         starts_with("2020")) %>%
+  pivot_longer(starts_with("2020"),
+               names_to = "date",
+               values_to = "index")
+
+# apple_city
+```
+
+## Apple Plots
+
+### US
+
+```{r apple-us-plot}
+apple_us %>% 
+  group_by(transportation_type) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(index, 7, NA)) %>% 
+  ggplot(aes(x = as.Date(date), y = mov_avg_7, color = transportation_type)) + 
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = transportation_type), method = "smart.grid") +
+  labs(x = NULL,  
+       y = "7 Day Moving Average",
+       caption = "Source: Apple Mobility Trends",
+       title = "US Mobility",
+       subtitle = "Index (100 basline)")
+  
+```
+
+### `r params$state` Mobility Plot
+
+```{r apple-state-plot}
+apple_state %>% 
+  filter(state == params$state) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(index, 7, NA)) %>%
+  ggplot(aes(x = as.Date(date), y = mov_avg_7, color = transportation_type)) +
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = transportation_type), method = "smart.grid") +
+  labs(x = NULL, 
+       y = "7 Day Moving Average",
+       caption = "Source: Apple Mobility Trends",
+       title = glue::glue({params$state}, "Mobility", .sep = " "),
+       subtitle = "Index (100 basline)")
+```
+
+### `r params$county`, `r params$state` Mobility
+
+```{r apple-county-plot}
+apple_county %>% 
+  filter(state == params$state, county == params$apple_county) %>% 
+  mutate(mov_avg_7 = zoo::rollmean(index, 7, NA)) %>%
+  ggplot(aes(x = as.Date(date), y = mov_avg_7, color = transportation_type)) +
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = transportation_type), method = "smart.grid") +
+  labs(x = NULL, 
+       y = "7 Day Moving Average",
+       caption = "Source: Apple Mobility Trends",
+       title = glue::glue({params$apple_county}, {params$state}, "Mobility",
+                          .sep = " "),
+       subtitle = "Index (100 basline)")
+```
+
+### `r params$city`, `r params$state` Mobility
+
+```{r}
+apple_city %>% 
+  filter(city == "Richmond") %>% 
+  mutate(mov_avg_7 = zoo::rollmean(index, 7, NA)) %>%
+  ggplot(aes(x = as.Date(date), y = mov_avg_7, color = transportation_type)) +
+  geom_line(show.legend = FALSE) +
+  directlabels::geom_dl(aes(label = transportation_type), method = "smart.grid") +
+  labs(x = NULL, 
+       y = "7 Day Moving Average",
+       caption = "Source: Apple Mobility Trends",
+       title = glue::glue({params$city}, ", ", {params$state}, " Mobility"),
+       subtitle = "Index (100 basline)")
+  
+```
+
+
+# Appendix FIPS
+
+```{r appendix, eval=FALSE}
+library(rvest)
+library(listviewer)
+web_page <- 
+  read_html("https://www.nrcs.usda.gov/wps/portal/nrcs/detail/?cid=nrcs143_013697",
+            as.data.frame = TRUE, stringsAsFactors = TRUE) 
+
+tbls <- 
+html_nodes(web_page, "table")
+
+head(tbls)
+
+tbls[[6]][1]
+
+tbls_ls <- 
+web_page %>%
+  html_nodes("table")
+
+fips <- 
+tbls_ls %>% as.data.frame()
+
+fips %>% 
+  slice(31:3261) %>% 
+  select(fips = X1, county = X2, state = X3) %>% 
+  write_csv(here("data", "fips.csv"))
+```
+
+```{r fips-lookup}
+here("data", "fips.csv") %>% 
+  read_csv() %>% 
+  DT::datatable()
+```
+
+# Appendix Cities
+
+```{r cities-lookup}
+apple_city %>% 
+  distinct(city, state) %>% 
+  DT::datatable()
+```
+

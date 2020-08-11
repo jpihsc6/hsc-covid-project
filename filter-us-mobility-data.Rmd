@@ -1,0 +1,51 @@
+---
+title: "Create US Mobility Report csv"
+author: "Tony Carilli"
+date: "8/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+```
+
+# Read Global Mobility Report
+
+Global Mobility Report exceeds github file size
+
+```{r global-mobility-report}
+global_mobility_report <- 
+here("data", "Global_Mobility_Report.csv") %>% 
+  read_csv(col_types =
+      cols(
+        country_region_code = col_character(),
+        country_region = col_character(),
+        sub_region_1 = col_character(),
+        sub_region_2 = col_character(),
+        metro_area = col_character(),
+        iso_3166_2_code = col_character(),
+        census_fips_code = col_integer(),
+        date = col_date(format = ""),
+        retail_and_recreation_percent_change_from_baseline = col_double(),
+        grocery_and_pharmacy_percent_change_from_baseline = col_double(),
+        parks_percent_change_from_baseline = col_double(),
+        transit_stations_percent_change_from_baseline = col_double(),
+        workplaces_percent_change_from_baseline = col_double(),
+        residential_percent_change_from_baseline = col_double()
+      )
+  )
+```
+
+# Create US Mobility Report csv 
+
+You can also embed plots, for example:
+
+```{r us-mobility-report}
+global_mobility_report %>% 
+  filter(country_region_code == "US") %>% 
+  write_csv(here("data", "us_mobility_report.csv"))
+```
+
+
