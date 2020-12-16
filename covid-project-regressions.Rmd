@@ -1,0 +1,783 @@
+---
+title: "Covid Project Regressions"
+author: "Tony Carilli"
+date: "12/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+# Data
+
+## Stringency Mobility and Social Capital
+
+```{r}
+df <-
+  here::here("data", "covid_state_level.csv") %>%
+  read_csv() %>%
+  group_by(state) %>%
+  mutate(
+    stringency_dummy = ifelse(stringency_index > 50, 1, 0),
+    state_level_dummy = ifelse(state_level_index > 0, 1, 0),
+    family_unity_dummy = ifelse(family_unity > 0, 1, 0),
+    family_interaction_dummy = ifelse(family_interaction > 0, 1, 0),
+    social_support_dummy = ifelse(social_support > 0, 1, 0),
+    community_health_dummy = ifelse(community_health > 0, 1, 0),
+    institutional_health_dummy = ifelse(institutional_health > 0, 1, 0),
+    collective_efficacy_dummy = ifelse(collective_efficacy > 0, 1, 0),
+    philanthropic_health_dummy = ifelse(philanthropic_health > 0, 1, 0),
+    retail_recreation = zoo::rollmean(
+      retail_and_recreation_percent_change_from_baseline,
+      7,
+      NA,
+      "right"
+    ),
+    grocery_pharmacy = zoo::rollmean(
+      grocery_and_pharmacy_percent_change_from_baseline,
+      7,
+      NA,
+      "right"
+    ),
+    parks = zoo::rollmean(parks_percent_change_from_baseline, 7, NA, "right"),
+    transit_stations = zoo::rollmean(
+      transit_stations_percent_change_from_baseline,
+      k = 7,
+      fill = NA,
+      align = "right"
+    ),
+    workplaces = zoo::rollmean(workplaces_percent_change_from_baseline, 7, NA, "right"),
+    residential = zoo::rollmean(residential_percent_change_from_baseline, 7, NA, "right"),
+    deaths_ma = zoo::rollmean(deaths_new, 7, NA, "right"),
+    cases_ma = zoo::rollmean(cases_new, 7, NA, "right"),
+    state = str_sub(state, -2),
+    stringency_lag_7 = dplyr::lag(stringency_index, 7),
+    stringency_lag_14 = dplyr::lag(stringency_index, 14),
+    
+  ) %>%
+  ungroup()
+
+```
+
+
+## Social Capital Project data
+
+```{r}
+state_index <- 
+  here::here("data", "social-capital-project-social-capital-index-data .xlsx") %>% 
+  readxl::read_xlsx(sheet = "State Benchmarks", skip = 2) %>% 
+  janitor::clean_names() %>% 
+  select(-starts_with("x"))
+```
+
+## state_index subset
+
+```{r}
+names(state_index)
+
+state_index_subset <-
+  state_index %>%
+  select(
+    state = state_abbreviation,
+    percent_in_fair_or_poor_health,
+    percent_rural,
+    percent_black,
+    percent_without_health_insurance,
+    median_household_income,
+    percent_adults_graduated_high_school,
+    percent_adults_with_ba,
+  ) %>%
+  mutate(
+    poor_health_dummy = ifelse(percent_in_fair_or_poor_health < 16.5, 1, 0),
+    health_insurance_dummy = ifelse(percent_without_health_insurance < 10.7, 1, 0)
+  )
+df %>%
+  left_join(state_index_subset)
+
+```
+
+
+## governor affiliation data
+
+```{r}
+
+governors <-
+  read_csv("data/state_politics.csv", skip = 2) %>%
+  slice(2:52) %>%
+  mutate(
+    state = state.abb[match(Location, state.name)],
+    state = ifelse(Location == "District of Columbia", "DC", state),
+    .before = Location
+  ) %>%
+  janitor::clean_names() %>%
+  select(state, governor_political_affiliation)
+
+```
+
+
+
+
+# Transit case elasticity
+
+```{r}
+df %>% 
+  plm::plm(transit_stations ~ log(dplyr::lag(cases_new, 7) + 1), 
+           index =  c("state", "date"), data = ., model = "within") %>% 
+  summary()
+```
+
+# Transit death elasticity
+
+```{r}
+df %>% 
+  plm::plm(transit_stations ~ log(dplyr::lag(deaths_new, 7) + 1), 
+           index =  c("state", "date"), data = ., model = "within") %>% 
+  summary()
+```
+
+
+```{r}
+df %>% 
+  mutate(
+  confirmed_cases_ma_7 = zoo::rollmean(
+      confirmed_cases,
+      k = 7,
+      fill = NA,
+      align = "right"),
+  stringency_index_scaled = scale(stringency_index)) %>% 
+  plm::plm(residential_percent_change_from_baseline ~ log(dplyr::lag(confirmed_cases_ma_7, 7) + 1) +
+             stringency_index_scaled, 
+           index =  c("state", "date"), data = ., model = "within") %>% 
+  summary()
+```
+
+
+
+
+
+```{r}
+df %>% 
+  group_by(state) %>%
+  filter(!is.na(stringency_index)) %>% 
+  summarize(date = max(date)) %>% 
+  summarize(date = min(date)) %>% 
+  pull(date)
+```
+
+# MODEL 1 We LIKE
+
+
+```{r model-1-we-like}
+df %>%
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+```{r mobility-and-social-capital}
+df %>%
+  plm::plm(
+    residential ~ stringency_index * state_level_index + 
+      dplyr::lag(cases_ma,1),
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+## IV model
+
+
+```{r model-we-like-with-iv}
+df %>%
+  left_join(governors) %>% 
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index * state_level_index | 
+      stringency_index + stringency_index:state_level_index + 
+      governor_political_affiliation + stringency_lag_7 * state_level_index +
+      dplyr::lag(cases_new, 1),
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+```{r}
+df %>% 
+  group_by(state) %>% 
+  mutate(cases_ma_lag_7 = dplyr::lag(cases_ma, 7)) %>% 
+  plm::plm(stringency_index ~ state_level_index + cases_ma_lag_7,
+           data = .,
+           index = "date", 
+           model = "within") %>% 
+  summary()
+```
+
+```{r}
+df %>% 
+  left_join(state_index, by = c("state" = "state_abbreviation")) %>% 
+  filter(date == "2020-11-01") %>% 
+  lm(state_level_index ~ median_household_income + percent_adults_with_ba +
+             percent_black * percent_rural,
+           data = .) %>% 
+  summary()
+           
+  
+  
+```
+
+```{r final-iv-plm-model}
+df %>%
+  left_join(governors) %>% 
+  left_join(state_index, by = c("state" = "state_abbreviation")) %>% 
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index * state_level_index | 
+      stringency_index + stringency_index:state_level_index + 
+      governor_political_affiliation + stringency_lag_7 * state_level_index +
+      median_household_income + percent_adults_with_ba +
+             percent_black * percent_rural + 
+      dplyr::lag(cases_new, 1),
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+```{r}
+df %>%
+  left_join(governors) %>% 
+  left_join(state_index, by = c("state" = "state_abbreviation")) %>% 
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index * state_level_index + 
+             median_household_income + percent_adults_with_ba +
+             percent_black * percent_rural + population_density,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+
+```{r}
+df %>%
+  left_join(governors) %>% 
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ governor_political_affiliation * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+
+```{r}
+df %>%
+  left_join(governors) %>% 
+  group_by(state) %>%
+  mutate(governor = ifelse(governor_political_affiliation == "Republican", 1, 0)) %>%
+  ungroup() %>% 
+  lm(state_level_dummy ~ governor_political_affiliation,
+    data = .,
+    ) %>%
+  summary()
+```
+## Race vs family unity
+
+```{r}
+state_index %>% 
+  left_join(df) %>% 
+  lm(family_prosperity_index ~ percent_black, .) %>% 
+  summary()
+```
+
+
+## Cross Sectional model
+
+```{r}
+df %>% 
+  left_join(governors) %>% 
+  left_join(state_index, by = c("state" = "state_abbreviation")) %>% 
+  filter(date == "2020-11-01") %>% 
+  lm(cases_new ~ stringency_index * state_level_index, 
+     data = .) %>% 
+  jtools::summ()
+```
+```{r}
+df %>% 
+  left_join(governors) %>% 
+  left_join(state_index) %>% 
+  filter(date == "2020-11-01") %>% 
+  pull(percent_in_fair_or_poor_health)
+```
+
+
+
+```{r}
+df %>%
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+
+
+```{r}
+df %>%
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_index,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+```{r}
+df %>%
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_dummy + 
+      population_density,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+Disaggregated Social Indicators
+
+```{r}
+df %>%
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_dummy + population_density,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ broom::tidy()
+
+df %>%
+  plm::plm(
+    cases_new ~ stringency_dummy * family_unity_dummy + population_density,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ broom::tidy()
+
+df %>%
+  plm::plm(
+    cases_new ~ stringency_dummy * community_
+    _dummy + population_density,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ broom::tidy()
+
+
+```
+
+```{r many-models}
+models <-
+  list(
+    state = 'cases_new ~ stringency_dummy * state_level_dummy + population_density',
+    family_unity = 'cases_new ~ stringency_dummy * family_unity_dummy + population_density',
+    family_interaction = 'cases_new ~ stringency_dummy * family_interaction_dummy + population_density',
+    social_support = 'cases_new ~ stringency_dummy * social_support_dummy + population_density',
+    community_health = 'cases_new ~ stringency_dummy * community_health_dummy + population_density',
+    institutional_health = 'cases_new ~ stringency_dummy * institutional_health_dummy + population_density',
+    collective_health = 'cases_new ~ stringency_dummy * collective_efficacy_dummy + population_density',
+    philanthropic_health = 'cases_new ~ stringency_dummy * philanthropic_health_dummy + population_density'
+  )
+
+model_frame <- tibble(model = models) %>% 
+  mutate(model_name = names(model))
+
+model_frame <- model_frame %>% 
+  mutate(model = map(model, as.formula))
+
+estimated_models <- 
+  model_frame %>% 
+  mutate(fit = map(model, ~plm::plm(., data = df, index = c("date"), model = "within")))
+
+models_tidy <- 
+  estimated_models %>% 
+  transmute(model_name, betas = purrr::map(fit, broom::tidy))
+
+models_tidy %>% 
+  pivot_wider(names_from = model_name,
+              values_from = betas) %>% 
+  pluck("state")
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 4), .before = "term") %>% 
+  pivot_longer(cols = 3:6,
+               names_to = "estimate",
+               values_to = "value")
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 4), .before = "term") %>% 
+  pivot_wider(names_from = model)
+
+```
+
+```{r}
+models_tidy %>% 
+  unnest_wider(betas) %>% 
+  # unnest_longer(term) %>% 
+  unnest_wider(estimate, names_sep = "_")
+```
+
+
+# fair 
+interacted with social capital
+
+```{r}
+df %>% 
+  left_join(state_index_subset) %>% 
+  plm::plm(
+    cases_new ~ poor_health_dummy * state_level_dummy ,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+  
+
+df %>% 
+  left_join(state_index_subset) %>% 
+  plm::plm(
+    cases_new ~ health_insurance_dummy * state_level_dummy * stringency_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+```
+# increase stringency dummy to .65
+
+```{r}
+df %>% 
+  mutate(stringency_dummy = ifelse(stringency_index > 65, 1, 0)) %>% 
+  left_join(state_index_subset) %>% 
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+```
+# stringency lagged
+
+```{r}
+df %>% 
+  left_join(state_index_subset) %>% 
+  plm::plm(
+    cases_new ~ stringency_lag_7 * state_level_index,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+
+df %>% 
+  left_join(state_index_subset) %>% 
+  plm::plm(
+    cases_new ~ stringency_lag_14 * state_level_index,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+```
+
+# estimate stringency
+
+```{r}
+df %>% 
+  left_join(state_index_subset) %>% 
+  plm::plm(
+    cases_new ~ stringency_lag_14 * state_level_index,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+```
+
+
+# add governors political affiliation
+
+## looking for instruments
+
+```{r}
+df %>% 
+  left_join(state_index_subset) %>% 
+  left_join(governors) %>% 
+  mutate(deaths_lag = dplyr::lag(deaths_ma, 7),
+         cases_lag = dplyr::lag(cases_ma, 14),
+         stringency_lag = dplyr::lag(stringency_index, 14)) %>% 
+  plm::plm(
+    stringency_index ~  percent_without_health_insurance + 
+      governor_political_affiliation +  percent_rural + 
+      + median_household_income + population_density +
+      percent_black + percent_in_fair_or_poor_health +
+      percent_adults_with_ba +
+      deaths_lag + cases_lag + stringency_lag,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+```
+## governor affiliation - percent rural
+
+```{r}
+df %>% 
+  left_join(state_index_subset) %>% 
+  left_join(governors) %>% 
+  # filter(date == "2020-11-01") %>% 
+  # select(percent_rural, governor_political_affiliation) %>% 
+  mutate(republican = ifelse(governor_political_affiliation == "Republican", 1, 0)) %>% 
+  lm(
+    republican ~ percent_rural,
+    data = .
+  ) %>%
+ summary()
+```
+
+```{r}
+df %>% 
+  left_join(state_index_subset) %>%
+  left_join(governors) %>% 
+  plm::plm(stringency_index ~ percent_rural + governor_political_affiliation,
+           data = .,
+           index = "date",
+           model = "within") %>% 
+  summary()
+```
+
+
+```{r}
+df %>% 
+  left_join(state_index_subset) %>% 
+  left_join(governors) %>% 
+  plm::plm(
+    cases_new ~ stringency_lag_14 * state_level_index + 
+      percent_rural,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+ summary()
+```
+
+---
+
+```{r}
+df %>%
+  group_by(state) %>%
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 14)) %>%
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_index + 
+      population_density,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+```{r}
+df %>% 
+  mutate(pop_over_50 = (population_age_50_59 + population_age_60_69 + 
+                          population_age_70_79 + population_age_80_and_older) / population) %>% 
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_index + 
+      population_density + pop_over_50,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+  
+```
+
+
+
+```{r}
+df %>% 
+  lm(log(cases_new + 1) ~ state_level_index * stringency_dum + date +
+       population_density, .) %>% 
+  jtools::summ()
+  
+```
+
+
+```{r}
+df %>% 
+  group_by(state) %>% 
+  mutate(lag_stringency_index = dplyr::lag(stringency_index, 7)) %>% 
+  lm(deaths_new ~ state_level_index +  population_density + lag_stringency_index, .) %>% 
+  jtools::summ(digits = 4, scale = TRUE)
+```
+
+```{r}
+df %>% 
+  group_by(state) %>% 
+  filter(!is.na(transit_stations_percent_change_from_baseline)) %>% 
+  mutate(elasticity = log(transit_stations_percent_change_from_baseline + 100) - 
+           dplyr::lag(log(transit_stations_percent_change_from_baseline + 100), 1) /
+           (log(cases_new + 1) - log(dplyr::lag(cases_new, 1)) + 1)
+  ) %>% 
+  summary()
+```
+
+```{r}
+df %>%
+  group_by(state) %>%
+  filter(!is.na(transit_stations_percent_change_from_baseline),
+         confirmed_cases > 0) %>%
+  mutate(
+    confirmed_cases_ma_7 = zoo::rollmean(
+      confirmed_cases,
+      k = 7,
+      fill = NA,
+      align = "right"
+    ),
+    transit_stations_percent_change_from_baseline_ma = zoo::rollmean(
+      transit_stations_percent_change_from_baseline,
+      7,
+      align = "right",
+      fill = NA
+    ),
+    percent_change_cases = log(confirmed_cases_ma_7) - dplyr::lag(log(confirmed_cases_ma_7), 7),
+    percent_change_mobility = log(transit_stations_percent_change_from_baseline_ma + 100) -
+      dplyr::lag(
+        log(transit_stations_percent_change_from_baseline_ma + 100),
+        1
+      ),
+    elasticity = percent_change_mobility / percent_change_cases
+  ) %>%
+  filter(is.finite(elasticity)) %>% 
+  ggplot(aes(x = state, y = elasticity)) +
+  geom_boxplot() # %>%
+  # select(elasticity) %>% 
+  # summarize(mean(elasticity, na.rm = TRUE))
+  # filter(state == "US_AZ") %>%
+  # select(date,
+  #        confirmed_cases,
+  #        transit_stations_percent_change_from_baseline,
+  #        confirmed_cases_ma_7,
+  #        transit_stations_percent_change_from_baseline_ma,
+  #        elasticity
+  #        ) %>%
+  # filter(elasticity > 4)
+```
+
+```{r}
+df %>% 
+  group_by(state) %>% 
+  filter(confirmed_cases > 0) %>% 
+  mutate(mov_avg = zoo::rollmean(confirmed_cases, k = 7, fill = NA, align = "right"))
+
+zoo::rollmean(x = df$confirmed_cases, k = 7, fill = NA, align = "right")
+```
+
+```{r}
+df %>%
+  filter(state == "US_AZ") %>%
+  mutate(
+    transit_stations_percent_change_from_baseline_ma = zoo::rollmean(transit_stations_percent_change_from_baseline,
+                                                                     7, align = "right", fill = NA)) %>%
+  ggplot(aes(x = date, y = transit_stations_percent_change_from_baseline_ma)) +
+  geom_line()
+```
+
+```{r warning=FALSE}
+
+df %>% 
+  mutate(state = str_sub(state, -2)) %>% 
+  filter(state != "VI") %>% 
+  group_by(state) %>% 
+  filter(!is.na(deaths_new)) %>% 
+  mutate(cases_new_ma = zoo::rollmean(cases_new, k = 7, fill = NA, align = "right")) %>% 
+  ggplot(aes(x = date, y = cases_new_ma)) + 
+  geom_line() +
+  geofacet::facet_geo(~ state, 
+                      grid = "us_state_grid2"
+    
+  )
+  
+```
+
+```{r}
+df %>% 
+  filter(date == "2020-11-01") %>% 
+  lm(confirmed_cases ~ state_level_index + family_unity + social_support +
+       ehhi + rhhi +  
+       population_density + stringency_index, .) %>% 
+  jtools::summ(scale = TRUE, transfrom.response = TRUE, robust = "HC0") 
+```
+
+```{r}
+df %>% 
+  # filter(date == "2020-11-01") %>% 
+  lm(confirmed_cases ~ state_level_index + family_unity + social_support +
+       ehhi + rhhi +
+       population_density + stringency_index + 
+       state + date, .) %>% 
+  jtools::summ(scale = TRUE, transfrom.response = TRUE, robust = "HC0") 
+```
+
+```{r}
+df %>% 
+  filter(date == "2020-11-01") %>% 
+  lm(residential_percent_change_from_baseline ~ state_level_index + family_unity + social_support +
+       ehhi + rhhi +  
+       population_density + stringency_index, .) %>% 
+  jtools::summ(scale = TRUE, transfrom.response = TRUE, robust = "HC0") 
+```
+

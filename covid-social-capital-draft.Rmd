@@ -1,0 +1,576 @@
+---
+title: "Covid Draft 1"
+author: "Tony Carilli"
+date: "12/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lmtest)
+```
+
+# Data
+
+```{r}
+df <- 
+  here::here("data", "covid_data_final.csv") %>% 
+  read_csv() 
+```
+
+
+
+
+# Base Model
+
+$$\mathit{New Cases} = \beta_0 + \beta_1\mathit{Stringency}+\beta_2\mathit{Social Capital}+\beta_3\mathit{Sringency*SocialCapital + \sum\gamma_i\mathit{X_i}} + \epsilon $$
+
+## base model with only dummies
+
+```{r base-model-dummies}
+df %>%
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+## base model with stringency index lagged and social capital dummy 
+
+```{r base-model-index-dummy}
+df %>% 
+  # mutate(date = factor(date)) %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy,
+    data = .,
+    index = c("state", "date"),
+    model = "within"
+  ) %>% 
+  summary()
+```
+
+
+# testing for fixed effects
+
+```{r}
+
+library(plm)
+
+plm::pooltest(
+  
+df %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy,
+    data = .,
+    index = c("state", "date"),
+    model = "within"
+) ,
+
+df %>% 
+  pvcm(
+    cases_new ~ stringency_index_lag * state_level_dummy,
+    data = .,
+    # index = c("state", "date"),
+    model = "within"
+  )
+)
+```
+
+```{r}
+
+pFtest(
+    cases_new ~ stringency_index_lag * state_level_dummy,
+    data = df,
+    effect = "individual"
+)
+
+```
+
+## interacted with everything
+
+```{r}
+df %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy +
+      median_household_income + 
+      percent_adults_with_ba + 
+      percent_in_fair_or_poor_health +
+      percent_black + 
+      density + 
+      percent_rural +
+      percent_65 + 
+      average_temperature + 
+      governor_political_affiliation,
+    data = .,
+    effect = "time",
+    index = c("state"),
+    model = "within"
+  ) %>% 
+  summary()
+```
+
+
+
+## base model social capital dummy and controls
+
+```{r base-model-index-control}
+df %>% 
+  group_by(state) %>% 
+  mutate(stringency_index_lag = dplyr::lag(stringency_index, 14)) %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy +
+      median_household_income + 
+      percent_adults_with_ba + 
+      percent_in_fair_or_poor_health +
+      percent_black + 
+      density + 
+      percent_rural +
+      percent_65 + 
+      average_temperature + 
+      governor_political_affiliation,
+    data = .,
+    index = "date",
+    model = "within"
+  ) %>% 
+  summary()
+```
+##  base model index-dummy and controls iv
+
+```{r}
+df %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy +
+    median_household_income + 
+      percent_adults_with_ba + 
+      percent_in_fair_or_poor_health +
+      percent_black + 
+      density + 
+      percent_rural +
+      percent_65 + 
+      average_temperature + 
+      governor_political_affiliation |
+      stringency_index_lag * state_level_dummy +
+      median_household_income + 
+      percent_adults_with_ba + 
+      percent_in_fair_or_poor_health +
+      percent_black + 
+      density + 
+      percent_rural +
+      percent_65 + 
+      average_temperature + 
+      governor_political_affiliation,
+    data = .,
+    effect = "time",
+    index = "state",
+    model = "within"
+  ) %>% 
+  summary()
+```
+
+
+
+
+## Difference in means high low social capital
+
+```{r cases-diff-means}
+df %>%
+ group_by("state") %>% 
+  # mutate(state_level_dummy = if_else(state_level_index > .5, 1, 0)) %>% 
+  # ungroup() %>% 
+    # filter(date <= "2020-10-31") %>% 
+  plm::plm(
+    cases_new ~ state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+## base-model-march-to-june
+
+```{r base-model-march-to-june}
+df %>% 
+  filter(date >= "2020-03-01" & date < "2020-06-01") %>% 
+  plm::plm(
+    cases_new ~ stringency_index * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+  
+```
+
+## base-model-june-to-august
+
+```{r base-model-june-to-august}
+df %>% 
+  filter(date >= "2020-06-01" & date <= "2020-08-31") %>% 
+  plm::plm(
+    cases_new ~ stringency_index * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+  
+```
+
+## base-model-sept-to-current
+
+```{r base-model-sept-to-current}
+df %>% 
+  filter(date > "2020-08-31") %>% 
+  plm::plm(
+    cases_new ~ stringency_index * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+## base-model-iv
+
+```{r base-model-iv}
+df %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy |
+      stringency_index_lag * state_level_dummy +  
+      percent_rural * percent_black + governor_political_affiliation +
+      cases_ma,
+    data = .,
+    effect = "time",
+    index = "state",
+    model = "within"
+  ) %>%
+  summary()
+```
+## base-model-pooled
+
+```{r base-model-pool}
+df %>% 
+  lm(cases_new ~ stringency_index_lag * state_level_dummy, .) %>% 
+  jtools::summ(robust = "HC1")
+```
+# pooled with date as factor
+
+```{r base-model-pool-date-as-factor}
+df %>% 
+  lm(cases_new ~ stringency_index_lag * state_level_dummy + 
+       factor(date), .) %>% 
+  jtools::summ(robust = "HC1")
+```
+
+
+## base with robust se
+
+```{r base-robust-se}
+# model <- 
+df %>%
+  plm::plm(
+    cases_new ~ stringency_dummy * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>% 
+  # summary() %>% 
+  plm::vcovHC(. , method = "white1", type = "HC0", cluster = c("group", "time"))
+```
+
+
+
+## 1.5 stds social capital
+
+```{r base-with-controls-1}
+df %>%
+  group_by(state) %>% 
+  mutate(stringency_index_lag = dplyr::lag(stringency_index, 14),
+         state_level_dummy = if_else(state_level_index >= -1.5 & state_level_index <= 1.5, 1, 0)) %>% 
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+## putnam index
+
+```{r}
+df %>%
+  group_by(state) %>% 
+  mutate(stringency_index_lag = dplyr::lag(stringency_index, 14),
+         state_level_dummy = if_else(putnam_index > 0, 1, 0)) %>% 
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+## percent who trust neighbors
+
+```{r}
+df %>%
+  group_by(state) %>% 
+  mutate(stringency_index_lag = dplyr::lag(stringency_index, 14)) %>% 
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * percent_who_trust_all_most_neighbors,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+### neighbors march to june
+
+```{r}
+df %>% 
+  filter(date >= "2020-03-01" & date < "2020-06-01") %>% 
+  group_by(state) %>% 
+  mutate(stringency_index_lag = dplyr::lag(stringency_index, 14)) %>% 
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * percent_who_trust_all_most_neighbors,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+### june - aug
+
+```{r}
+df %>% 
+  filter(date >= "2020-06-01" & date < "2020-09-01") %>% 
+  group_by(state) %>% 
+  mutate(stringency_index_lag = dplyr::lag(stringency_index, 14)) %>% 
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * percent_who_trust_all_most_neighbors,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+### sept - current
+
+```{r}
+df %>% 
+  filter(date >= "2020-09-01") %>% 
+  group_by(state) %>% 
+  mutate(stringency_index_lag = dplyr::lag(stringency_index, 14)) %>% 
+  ungroup() %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * percent_who_trust_all_most_neighbors,
+    data = .,
+    index = c("date"),
+    model = "within"
+  ) %>%
+  summary()
+```
+
+# line graphs stringency_index
+
+```{r stringency-index-line-graph}
+df %>% 
+  ggplot(aes(x = date, y = stringency_index, color = state)) + 
+  geom_line() + 
+  facet_wrap(~ state)
+```
+
+# stringency index - central tendency
+
+```{r stringency-index-mean-median}
+df %>% 
+  summarize(mean_si = mean(stringency_index, na.rm = TRUE),
+            median_si = median(stringency_index, na.rm = TRUE))
+```
+
+# many models
+
+```{r many-models}
+models <-
+  list(
+    state = 'cases_new ~ stringency_index_lag * state_level_dummy +
+    median_household_income +
+    percent_adults_with_ba +
+    percent_in_fair_or_poor_health +
+    percent_black +
+    density +
+    percent_rural +
+    percent_65 +
+    average_temperature +
+    governor_political_affiliation',
+    family_unity = 'cases_new ~ stringency_index_lag * family_unity_dummy +
+    median_household_income +
+    percent_adults_with_ba +
+    percent_in_fair_or_poor_health +
+    percent_black +
+    density +
+    percent_rural +
+    percent_65 +
+    average_temperature +
+    governor_political_affiliation',
+    family_interaction = 'cases_new ~ stringency_index_lag * family_interaction_dummy +
+  median_household_income +
+    percent_adults_with_ba +
+    percent_in_fair_or_poor_health +
+    percent_black +
+    density +
+    percent_rural +
+    percent_65 +
+    average_temperature +
+    governor_political_affiliation',
+  social_support = 'cases_new ~ stringency_index_lag * social_support_dummy +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  community_health = 'cases_new ~ stringency_index_lag * community_health_dummy +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  institutional_health = 'cases_new ~ stringency_index_lag * institutional_health_dummy +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  collective_health = 'cases_new ~ stringency_index_lag * collective_efficacy_dummy +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  philanthropic_health = 'cases_new ~ stringency_index_lag * philanthropic_health_dummy +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  trust_neighbor = 'cases_new ~ stringency_index_lag * neighbor_dummy +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  putnam_index = 'cases_new ~ stringency_index_lag * putnam_index +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  ferrara = 'cases_new ~ stringency_index_lag * alesina_la_ferrara_social_capital_group +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation',
+  family_prosperity = 'cases_new ~ stringency_index_lag * family_prosperity_index +
+  median_household_income +
+  percent_adults_with_ba +
+  percent_in_fair_or_poor_health +
+  percent_black +
+  density +
+  percent_rural +
+  percent_65 +
+  average_temperature +
+  governor_political_affiliation'
+  )
+
+models <- 
+  models %>% 
+  map(str_replace_all, "\\n", "")
+
+model_frame <- tibble(model = models) %>% 
+  mutate(model_name = names(model))
+
+model_frame <- model_frame %>% 
+  mutate(model = map(model, as.formula))
+
+estimated_models <- 
+  model_frame %>% 
+  mutate(fit = map(model, ~plm::plm(., data = df, effect = "time", index = "state", model = "within")))
+
+models_tidy <- 
+  estimated_models %>% 
+  transmute(model_name, betas = purrr::map(fit, broom::tidy))
+
+
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 12), .before = "term") %>% 
+  pivot_longer(cols = 3:6,
+               names_to = "estimate",
+               values_to = "value")
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 12), .before = "term") %>% 
+  pivot_wider(names_from = model)
+
+```
+
+```{r}
+models_tidy %>% 
+  unnest_wider(betas) %>% 
+  # unnest_longer(term) %>% 
+  unnest_wider(estimate, names_sep = "_") %>% 
+  unnest_wider(statistic, names_sep = "_") %>% 
+  select(model_name, ends_with(c("_1", "_2", "_12")))
+```
+
+
+
