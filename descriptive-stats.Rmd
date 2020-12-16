@@ -1,0 +1,89 @@
+---
+title: "Descriptive Statistics"
+author: "Tony Carilli"
+date: "12/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+# Data
+
+```{r data}
+df <-
+  here::here("data", "covid_data_final.csv") %>%
+  read_csv()
+```
+
+# Descriptive Stats
+
+```{r}
+stat_list <- list(
+  mean = ~mean(.x, na.rm = TRUE),
+  median = ~median(.x, na.rm = TRUE),
+  sd = ~sd(.x, na.rm = TRUE),
+  min = ~min(.x, na.rm = TRUE),
+  max = ~max(.x, na.rm = TRUE)
+  )
+
+df %>% 
+  group_by(state) %>% 
+  summarize(across(c(cases_new, stringency_index), stat_list)) %>% 
+  ungroup() %>% 
+  filter(state != "VI") %>% 
+  gt(rowname_col = "state") %>% 
+  tab_spanner(
+    label = "Daily New Cases per Million",
+    columns = vars(cases_new_mean, cases_new_median, cases_new_sd, cases_new_min, cases_new_max)
+  ) %>% 
+  tab_spanner(
+    label = "Daily Stringency Index",
+    columns = vars(stringency_index_mean, stringency_index_median, stringency_index_sd, stringency_index_min, stringency_index_max)
+  ) %>% 
+  cols_label(
+    cases_new_mean = "Mean",
+    cases_new_median = "Median",
+    cases_new_sd = "Std. Dev.",
+    cases_new_min = "Min",
+    cases_new_max = "Max",
+    stringency_index_mean = "Mean",
+    stringency_index_median = "Median",
+    stringency_index_sd = "Std.Dev",
+    stringency_index_min = "Min",
+    stringency_index_max = "Max"
+  ) %>% 
+  tab_header(
+    title = "Descriptive Statistics",
+    subtitle = "by State"
+  ) %>% 
+  tab_source_note(
+    source_note = md("Source: Thomas Hale, Sam Webster, Anna Petherick, Toby Phillips, and Beatriz Kira. (2020). Oxford COVID-19 Government Response Tracker. Blavatnik School of Government.")
+  ) %>% 
+  fmt_number(
+    columns = everything(),
+    decimals = 0
+  )
+  
+```
+
+# histograms
+
+```{r}
+df %>% 
+  group_by(state) %>% 
+  filter(!is.na(cases_new)) %>% 
+  ggplot(aes(y = cases_new, x = fct_reorder(as.factor(state), cases_new, median))) + 
+  geom_boxplot()
+```
+
+```{r}
+df %>% 
+  group_by(state) %>% 
+  # filter(cases_new > 0) %>% 
+  ggplot(aes(y = stringency_index, x = fct_reorder(as.factor(state), stringency_index, median))) + 
+  geom_boxplot()
+```
+
