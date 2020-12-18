@@ -1,0 +1,494 @@
+---
+title: "Covid Draft 1"
+author: "Tony Carilli"
+date: "12/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, options(scipen = 999), digits = 3)
+library(tidyverse)
+library(lmtest)
+```
+
+# Data
+
+```{r data}
+df <- 
+  here::here("data", "covid_data_final.csv") %>% 
+  read_csv() 
+```
+
+
+
+
+# Base Model
+
+$$\mathit{New Cases} = \beta_0 + \beta_1\mathit{Stringency}+\beta_2\mathit{Social Capital}+\beta_3\mathit{Sringency*SocialCapital + \sum\gamma_i\mathit{X_i}} + \epsilon $$
+# base model 
+
+## effect = time
+
+### with controls
+
+```{r base-model-index-control}
+df %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy +
+      median_household_income + 
+      percent_adults_with_ba + 
+      percent_in_fair_or_poor_health +
+      percent_black + 
+      density + 
+      percent_rural +
+      percent_65 + 
+      average_temperature + 
+      governor_political_affiliation,
+    data = .,
+    effect = "time",
+    index = "state",
+    model = "within"
+  ) %>% 
+  summary()
+```
+
+
+### testing iv's
+
+```{r testing-ivs}
+df %>%
+  filter(date == "2020-03-01") %>%
+  lm(
+    state_level_dummy ~  median_household_income +
+      percent_adults_with_ba +
+      percent_in_fair_or_poor_health +
+      percent_black +
+      density +
+      percent_rural +
+      percent_65 +
+      average_temperature +
+      governor_political_affiliation,
+    data = .
+  ) %>% 
+  broom::glance()
+
+```
+
+###  with controls as iv
+
+```{r base-model-iv-approach}
+df %>%
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy |
+      stringency_index_lag + stringency_index_lag:state_level_dummy +
+      median_household_income +
+      percent_adults_with_ba +
+      percent_in_fair_or_poor_health +
+      percent_black +
+      density +
+      percent_rural +
+      percent_65 +
+      average_temperature +
+      governor_political_affiliation,
+    data = .,
+    effect = "time",
+    index = "state",
+    model = "within"
+  ) %>%
+  summary()
+  # lmtest::coeftest(vcov. = vcovHC(. ,method = "white1", cluster = "group", type = "sss"))
+```
+
+### robust se
+
+```{r base-robust-se}
+# model <- 
+df %>%
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy +
+    median_household_income + 
+      percent_adults_with_ba + 
+      percent_in_fair_or_poor_health +
+      percent_black + 
+      density + 
+      percent_rural +
+      percent_65 + 
+      average_temperature + 
+      governor_political_affiliation,
+    data = .,
+    effect = "time",
+    index = "state",
+    model = "within"
+  ) %>% 
+  # summary() #%>% 
+  lmtest::coeftest(vcov. = vcovHC(. ,method = "white1", cluster = "group", type = "sss"))
+```
+
+
+
+## effect = twoways
+
+### with controls
+
+```{r}
+df %>% 
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy, # +
+      # median_household_income + 
+      # percent_adults_with_ba + 
+      # percent_in_fair_or_poor_health +
+      # percent_black + 
+      # density + 
+      # percent_rural +
+      # percent_65 + 
+      # average_temperature + 
+      # governor_political_affiliation,
+    data = .,
+    effect = "twoways",
+    index = "state",
+    model = "within"
+  ) %>% 
+  summary()
+```
+
+
+### with controls as iv
+
+```{r base-model-iv-approach-twoways}
+df %>%
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy |
+      stringency_index_lag + stringency_index_lag:state_level_dummy +
+      median_household_income +
+      percent_adults_with_ba +
+      percent_in_fair_or_poor_health +
+      percent_black +
+      density +
+      percent_rural +
+      percent_65 +
+      average_temperature +
+      governor_political_affiliation,
+    data = .,
+    effect = "twoways",
+    index = "state",
+    model = "within"
+  ) %>%
+  summary()
+  # lmtest::coeftest(vcov. = vcovHC(. ,method = "white1", cluster = "group", type = "sss"))
+```
+
+
+
+
+# many 
+
+## setup
+
+```{r social-capital-models-setup}
+models <- list()
+
+model_names <- c(
+  "state",
+  "family_unity",
+  "family_interaction",
+  "social_support",
+  "community_health",
+  "institutional_health",
+  "collective_efficacy",
+  "philanthropic_health",
+  "trust_neighbor",
+  "putnam_index",
+  "ferrara",
+  "family_prosperity"
+)
+
+social_capital <- c(
+  "state_level_dummy",
+  "family_unity_dummy",
+  "family_interaction_dummy",
+  "social_support_dummy",
+  "community_health_dummy",
+  "institutional_health_dummy",
+  "collective_efficacy_dummy",
+  "philanthropic_health_dummy",
+  "neighbor_dummy",
+  "putnam_index",
+  "alesina_la_ferrara_social_capital_group",
+  "family_prosperity_index"
+)
+
+controls <- c(
+  "median_household_income",
+  "percent_adults_with_ba",
+  "percent_in_fair_or_poor_health",
+  "percent_black",
+  "density",
+  "percent_rural",
+  "percent_65",
+  "average_temperature",
+  "governor_political_affiliation"
+)
+
+```
+
+
+## controls only
+
+### effect = time
+
+```{r many-models-controls-effect-time}
+
+for (i in seq_along(social_capital)) {
+  models[[i]] <-
+    glue::glue(
+      'cases_new ~ stringency_index_lag * ',
+      social_capital[i],
+      ' + ',
+      glue::glue_collapse(controls, " + ")
+    )
+}
+
+model_frame <- tibble(model = models) %>% 
+  mutate(model_name = names(model))
+
+model_frame <- model_frame %>% 
+  mutate(model = map(model, as.formula))
+
+estimated_models <- 
+  model_frame %>% 
+  mutate(fit = map(model, ~plm::plm(., data = df, effect = "time", index = "state", model = "within")))
+
+models_tidy <- 
+  estimated_models %>% 
+  transmute(model_name, betas = purrr::map(fit, broom::tidy))
+
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 12), .before = "term") %>% 
+  pivot_longer(cols = 3:6,
+               names_to = "estimate",
+               values_to = "value")
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 12), .before = "term") %>% 
+  pivot_wider(names_from = model)
+
+models_tidy %>% 
+  unnest_wider(betas) %>% 
+  # unnest_longer(term) %>% 
+  unnest_wider(estimate, names_sep = "_") %>% 
+  unnest_wider(std.error, names_sep = "_") %>% 
+  select(model_name, ends_with(c("_1", "_2", "_12")))
+```
+
+### effect = twoways
+
+```{r many-models-controls-effect-twoways}
+for (i in seq_along(social_capital)) {
+  models[[i]] <-
+    glue::glue(
+      'cases_new ~ stringency_index_lag * ',
+      social_capital[i]
+    )
+}
+
+model_frame <- tibble(model = models) %>% 
+  mutate(model_name = names(model))
+
+model_frame <- model_frame %>% 
+  mutate(model = map(model, as.formula))
+
+estimated_models <- 
+  model_frame %>% 
+  mutate(fit = map(model, ~plm::plm(., data = df, effect = "twoways", index = "state", model = "within")))
+
+models_tidy <- 
+  estimated_models %>% 
+  transmute(model_name, betas = purrr::map(fit, broom::tidy))
+
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 2), .before = "term") %>% 
+  pivot_longer(cols = 3:6,
+               names_to = "estimate",
+               values_to = "value")
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 2), .before = "term") %>% 
+  pivot_wider(names_from = model)
+
+models_tidy %>% 
+  unnest_wider(betas) %>% 
+  # unnest_longer(term) %>% 
+  unnest_wider(estimate, names_sep = "_") %>% 
+  unnest_wider(std.error, names_sep = "_") %>% 
+  select(model_name, ends_with(c("_1", "_2")))
+```
+
+
+## controls as IV
+
+### effect = time
+
+```{r many-models-controls-as-IV-effect-time}
+for (i in seq_along(social_capital)) {
+  models[[i]] <-
+    glue::glue(
+      'cases_new ~ stringency_index_lag * ',
+      social_capital[i],
+      ' | stringency_index_lag + ',
+      social_capital[i],
+      ':stringency_index_lag + ',
+      glue::glue_collapse(controls, " + ")
+    )
+}
+
+names(models) <- model_names
+
+model_frame <- tibble(model = models) %>% 
+  mutate(model_name = names(model))
+
+model_frame <- model_frame %>% 
+  mutate(model = map(model, as.formula))
+
+estimated_models <- 
+  model_frame %>% 
+  mutate(fit = map(model, ~plm::plm(., data = df, effect = "time", index = "state", model = "within")))
+
+models_tidy <- 
+  estimated_models %>% 
+  transmute(model_name, betas = purrr::map(fit, broom::tidy))
+
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 3), .before = "term") %>% 
+  pivot_longer(cols = 3:6,
+               names_to = "estimate",
+               values_to = "value")
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 3), .before = "term") %>% 
+  pivot_wider(names_from = model)
+
+models_tidy %>% 
+  unnest_wider(betas) %>% 
+  # unnest_longer(term) %>% 
+  unnest_wider(estimate, names_sep = "_") %>% 
+  unnest_wider(std.error, names_sep = "_") %>% 
+  select(model_name, ends_with(c("_1", "_2", "_3")))
+```
+
+### effect = twoways
+
+```{r many-models-controls-as-iv-effect-twoways}
+estimated_models <- 
+  model_frame %>% 
+  mutate(fit = map(model, ~plm::plm(., data = df, effect = "twoways", index = "state", model = "within")))
+
+models_tidy <- 
+  estimated_models %>% 
+  transmute(model_name, betas = purrr::map(fit, broom::tidy))
+
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 2), .before = "term") %>% 
+  pivot_longer(cols = 3:6,
+               names_to = "estimate",
+               values_to = "value")
+  
+
+estimated_models$fit %>% 
+  purrr::map_df(broom::tidy) %>% 
+  mutate(model = rep(names(models), each = 2), .before = "term") %>% 
+  pivot_wider(names_from = model)
+
+models_tidy %>% 
+  unnest_wider(betas) %>% 
+  # unnest_longer(term) %>% 
+  unnest_wider(estimate, names_sep = "_") %>% 
+  unnest_wider(std.error, names_sep = "_") %>% 
+  select(model_name, ends_with(c("_1", "_2")))
+```
+
+
+
+
+# broken by date
+
+
+
+# residuals
+
+```{r residuals}
+mod_time <-
+  df %>%
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy +
+      median_household_income +
+      percent_adults_with_ba +
+      percent_in_fair_or_poor_health +
+      percent_black +
+      density +
+      percent_rural +
+      percent_65 +
+      average_temperature +
+      governor_political_affiliation,
+    data = .,
+    effect = "time",
+    index = "state",
+    model = "within"
+  ) 
+
+mod_twoways <- 
+  df %>%
+  plm::plm(
+    cases_new ~ stringency_index_lag * state_level_dummy, #+
+      # median_household_income +
+      # percent_adults_with_ba +
+      # percent_in_fair_or_poor_health +
+      # percent_black +
+      # density +
+      # percent_rural +
+      # percent_65 +
+      # average_temperature +
+      # governor_political_affiliation, 
+    data = .,
+    effect = "twoways",
+    index = "state",
+    model = "within"
+  ) 
+
+tibble(mod_time$residuals, mod_twoways$residuals) %>% 
+  ggplot(aes(x = mod_time$residuals, y = mod_twoways$residuals)) + 
+  geom_point() + 
+  geom_abline(intercept = 0, slope = 1, color = "blue", size = 1.5)
+```
+
+## r squared
+
+```{r r-squared}
+
+mod_time %>% 
+  plm::r.squared()
+
+mod_twoways %>% 
+  plm::r.squared()
+```
+```{r}
+mod_time %>% 
+  summary()
+
+mod_twoways %>% 
+  summary()
+```
+
