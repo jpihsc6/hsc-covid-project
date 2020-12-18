@@ -39,6 +39,28 @@ Another closely related theme in the economics of institutions is that formal ru
 Similarly, there is a growing recognition that economic and political institutions influence the extent to which individuals provide health-enhancing public goods (Troesken, 2015), especially those related to disease prevention. For example, Geloso and Pavlik (2020) find that people were better able to respond---avoid infection---to the Spanish Flu pandemic if they lived in areas with greater economic freedom. Geloso and Candela (2020) also show economic freedom tempered recovery from flu pandemics throughout the 20th century. Relatedly, indivdiuals can alter the incentives and rules they face to provide mosquito-control (Carson, 2020a), and to encourage Covid-19 prevention (forthcoming). To the extent individuals cultivate social capital through their interactions with others (cite), the present work is a relevant, underexplored component of how individuals can combat the spread of infectious diseases.
 
 ## II Social Capital, Formal Rules, and Covid-19
+
 ## III Data and Model
+
 ## IV Results
+
+Table 1 - Base Panel Regression Model of New cases as a function of stringency and stringency::social capital.
+
+Table 2a - By Month
+Table 2b - By every three months
+Table 2c - eyeball date
+
+Table 3 - IV
+
+Table 4 - Controls and one-way fixed effects (time)
+
 ## V Conclusion
+Notes:
+
+* Social capital consistently influences infectious and preventative behaviors. 
+
+* Informal rules like those found in social capital influence behavior and bolster formal rules.
+
+* Policy implications are difficult to tease out given social capital is emergent. While we can easily identify measures of social capital, e.g., the number of community centers or the percent of people who donate to charitable organizations, cultivating social capital---in the way it is meant in the literature---is not so simple.
+
+* Future research should study the extent to which social capital erodes over time particularly because of formal rules that prevent interactions. That is, while we find social capital bolsters formal rules, those formal rules might extinguish the necessary parts of social capital given a longer duration or additional severity. 
