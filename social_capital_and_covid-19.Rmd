@@ -1,0 +1,44 @@
+---
+title: "Social Capital and Covid-19"
+author: "Carson"
+date: '`r format(lubridate::today(), "%B %d, %Y")`'
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+    theme: cerulean
+    highlight: tango
+    code_folding: hide
+indent: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+# Social Capital and Covid-19
+
+## I Introduction
+  
+In light of the on-going Covid-19 pandemic, scholars are beginning to examine the relationship between social capital and the spread and prevention of Covid-19 (Wong and Kohler, 2020; Borgonovi and Andrieu, 2020; Borgonovi, Andrieu, and Subramanian, 2020; Wu, 2020; Bartscher et al., 2020; Durante et al., 2020). Indeed, the influence social capital has on health outcomes in general is well-studied (Putnam, xxxx), and there is even some recognition that social capital influences the spread of infectious diseases (H1N1, xxxx). While this emerging literature generally recognizes the positive effect social capital ultimately has on preventative behavior, few recognize the extent to which social capital complements formal, governmental public health responses like lockdown and stay-at-home orders. Without this recognition, the efficacy of social capital and formal public health rules tend to be overestimated, which can lead to poor public health policy.  
+
+It is plausible that people with stronger social capital networks might have more interactions with each other, which could encourage infectious behavior. It is also plausible that greater social capital encourages preventative behavior via communal efforts to prevent infection, adopting new rules, and enforcing formal public health rules. Indeed, Borgonovi and Andrieu (2020) show that people living in counties (in the United States) with more social capital reduced their mobility “earlier and to a higher degree” than people in counties with less social capital. Borgonovi, Andrieu, and Subramanian (2020) also show that infection rates were initially higher in counties with more social capital, but transmission and mortality rates declined as people learned more about Covid-19. Wu (2020) suggests that people in areas with more social capital are more likely to enforce formal public health measures like wearing face masks.  
+
+Similarly, Bartscher et al. (2020) suggests that the number of Covid-19 cases across Europe was initially higher in countries with higher social capital, but that cases increased at a slower rate in countries with higher social capital.  Whereas Bartscher et al. (2020) suggests social capital becomes less important once lockdown orders are issued, we suggest and show that social capital plays a consistently complementary role with more formal rules regarding Covid-19—at least from March 1, 2020 to November 1, 2020. 
+
+Our study is the first to argue social capital is complementary to formal public health rules and that it exerts an independent effect on Covid-19 transmission. With state-level data on Covid-19 cases, social capital, and stringency---a measure of the severity of public health measures---we develop a panel model to assess these relative effects. Overall, we find social capital and stringency exert significant, independent effects on daily Covid-19 cases, and that higher social capital makes the effect of stringency larger for a given level of stringency. Consistent with the existing literature, social capital increases the number of daily cases and stringency decreases the number of daily cases, whereas the interaction between the two terms decreases the number of daily cases. Social capital by itself doesn’t encourage preventative behavior; however, it bolsters the effect of stringency measures.
+
+The primary implication for improving public health policy, and potentially limiting the spread of Covid-19 is that social capital should help inform on-going debates about formal public health measures. Yet, social capital is not a lever one person or a large group of people can toggle, so altering social capital is not a tractable policy option. Furthermore, even though social capital bolsters formal rules, this does not necessarily suggest policymakers should target areas with less social capital, let alone double-down along the intensive margin (as suggested by Bartscher et al., 2020). Even though areas with less social capital will not experience the complementary effect social capital has on stringency, those areas might have fewer interactions in the first place which might leave them with fewer Covid-19 cases. In any event, the relationships between social capital, formal public health rules, and the spread of infectious diseases enhances our understanding of how people spread infectious diseases.
+
+In addition to the emerging economic literature on Covid-19 and the relationship between social capital and Covid-19, this study also has implications for the larger economic literature on institutions and the extent to which formal and informal rules influence behavior, especially as it relates to economic growth (Williamson, 2009). That is, when formal rules are partially dependent on supporting informal rules, mimicking formal rules is not appropriate. In the context of Covid-19, social capital---as measured in the United States---supports the formal public heath rules stage governments adopt. While such rules are appropriate for the people who adopt them, given their governing bodies, caution is required when considering doing what others are doing. The kind of formal rules adopted in Hawaii or in New York might be inappropriate for the people of Mississippi or in California. 
+
+Another closely related theme in the economics of institutions is that formal rules and regulations might be a relevant alternative when trust is lacking (Williamson, 2009; Williamson, 2013; Davis and Williamson, 2016; Williamson, 2020; Cline and Williamson, 2019). However, our results suggest that social capital and formal public health rules complement each other. We do not find evidence that these mechanisms are substitutes.
+
+Similarly, there is a growing recognition that economic and political institutions influence the extent to which individuals provide health-enhancing public goods (Troesken, 2015), especially those related to disease prevention. For example, Geloso and Pavlik (2020) find that people were better able to respond---avoid infection---to the Spanish Flu pandemic if they lived in areas with greater economic freedom. Geloso and Candela (2020) also show economic freedom tempered recovery from flu pandemics throughout the 20th century. Relatedly, indivdiuals can alter the incentives and rules they face to provide mosquito-control (Carson, 2020a), and to encourage Covid-19 prevention (forthcoming). To the extent individuals cultivate social capital through their interactions with others (cite), the present work is a relevant, underexplored component of how individuals can combat the spread of infectious diseases.
+
+## II Social Capital, Formal Rules, and Covid-19
+## III Data and Model
+## IV Results
+## V Conclusion
